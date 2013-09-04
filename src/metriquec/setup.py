@@ -9,7 +9,7 @@ from setuptools import setup
 
 __pkg__ = 'metriquec'
 __version__ = '0.1.5'
-__release__ = 21
+__release__ = 22
 __nvr__ = '%s-%s' % (__version__, __release__)
 __pkgs__ = [
     'metriquec',

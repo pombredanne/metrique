@@ -9,7 +9,7 @@ from setuptools import setup
 
 __pkg__ = 'metriqued'
 __version__ = '0.1.5'
-__release__ = 15
+__release__ = 16
 __nvr__ = '%s-%s' % (__version__, __release__)
 __pkgs__ = ['metriqued', 'metriqued.mongodb', 'metriqued.tornado']
 __provides__ = ['metriqued']
