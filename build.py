@@ -44,6 +44,7 @@ cli.add_argument('action',
 cli.add_argument('-d', '--debug',
                  action='store_true',
                  default=False)
+cli.add_argument('--virtenv', type=str)
 cli.add_argument('-P', '--packages',
                  choices=__pkgs__ + ['all'],
                  default='all')
@@ -59,6 +60,9 @@ cli.add_argument('--ga',
                  action='store_true',
                  default=False)
 cli.add_argument('--pypi',
+                 action='store_true',
+                 default=False)
+cli.add_argument('--use-pip',
                  action='store_true',
                  default=False)
 
@@ -183,47 +187,57 @@ def call(cmd):
     _cmd = cmd.strip().split(' ')
     logger.info('(%s) %s' % (os.getcwd(), str(_cmd)))
     try:
-        p = sp.Popen(cmd, shell=True, stdout=sp.PIPE, stderr=sp.PIPE)
-        print p.communicate()
+        out = sp.check_output(cmd, shell=True)
+        logger.debug(out)
     except:
         raise
 
 
-def install(path, args, develop=False):
-    os.chdir(path)
-
-    virtenv = os.environ.get('VIRTUAL_ENV')
-    if virtenv:
-        activate = os.path.join(virtenv, 'bin', 'activate_this.py')
+def activate(args):
+    if args.virtenv:
+        activate = os.path.join(args.virtenv, 'bin', 'activate_this.py')
         execfile(activate, dict(__file__=activate))
+        logger.info('Virtual Env (%s): Activated' % args.virtenv)
 
-    cmd = 'pip-accel install -U '
 
-    if args.pypi:
-        # install from pypi
+def develop(path, args):
+    activate(args)
+    cmd = '%s develop' % path
+    call(cmd)
+
+
+def install(path, args):
+    activate(args)
+
+    if args.use_pip:
+        exe = 'pip'
+    else:
+        exe = 'pip-accel'
+    cmd = '%s install -U ' % exe
+
+    if args.pypi:  # install from pypi
         if args.upload:
+            # FIXME: PATH NEEDS TO BE SETUP.PY PATH...
+            # NOT PKG_PATH
             # build and upload the current version
             build(path=path, args=args, sdist=True)
         pkg = os.path.basename(path)
         cmd += pkg
-    else:
-        # install from local repo
+    else:  # install from local repo
         cmd += '-e %s' % path
     cmd += '' if args.no_mirrors else ' --use-mirrors'
     call(cmd)
 
 
 def build(path, args, sdist=False):
-    os.chdir(path)
     action = 'sdist' if sdist else 'build'
-    cmd = './setup.py %s' % action
+    cmd = '%s %s' % (path, action)
     cmd += ' upload' if args.upload else ''
     call(cmd)
 
 
 def register(path):
-    os.chdir(path)
-    cmd = './setup.py register'
+    cmd = '%s register' % path
     call(cmd)
 
 
@@ -251,16 +265,13 @@ if __name__ == '__main__':
               ga=args.ga) for path in setup_paths]
     else:
         if args.action == 'build':
-            [build(path=path, args=args, sdist=False) for path in pkg_paths]
+            [build(path=path, args=args, sdist=False) for path in setup_paths]
         elif args.action == 'sdist':
-            [build(path=path, args=args, sdist=True) for path in pkg_paths]
+            [build(path=path, args=args, sdist=True) for path in setup_paths]
         elif args.action == 'install':
             fast_check()
-            [install(path=path, args=args,
-                     develop=False) for path in pkg_paths]
+            [install(path=path, args=args) for path in pkg_paths]
         elif args.action == 'develop':
-            fast_check()
-            [install(path=path, args=args,
-                     develop=True) for path in pkg_paths]
+            [develop(path=path, args=args) for path in setup_paths]
         else:
             raise ValueError("Unknown action: %s" % args.action)

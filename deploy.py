@@ -86,6 +86,12 @@ def extend_parser(parser):
         help='install pypi packages (not git)')
 
     parser.add_option(
+        '--use-pip',
+        action='store_true',
+        default=False,
+        help='install using pip, not pip-accel')
+
+    parser.add_option(
         '--test',
         action='store_true',
         default=False,
@@ -111,6 +117,7 @@ def after_install(options, home_dir):
     pkgs = options.packages
     action = options.action
     pypi = options.pypi
+    use_pip = options.use_pip
 
     src_dir = os.getcwd()
     if git_uri == '.' and os.path.exists('.git'):
@@ -163,6 +170,7 @@ def after_install(options, home_dir):
 
     cmd = './build.py %s' % action
     cmd += ' --pypi ' if pypi else ''
+    cmd += ' --use-pip ' if use_pip else ''
     cmd += ' '.join(pkgs)
     call(cmd)
 

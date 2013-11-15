@@ -90,7 +90,7 @@ class ExportHdlr(MetriqueHdlr):
         user = '--username admin' if auth else ''
         _pass = '--password %s' % conf['admin_password'] if auth else ''
         cmd = ' '.join([x, db, collection, out, ssl, authdb, user, _pass])
-	_cmd = re.sub('password.*$', 'password *****', cmd)
+        _cmd = re.sub('password.*$', 'password *****', cmd)
         self.logger.debug('Running: %s' % _cmd)
         try:
             subprocess.check_call(shlex.split(cmd.encode('ascii')),
@@ -99,8 +99,8 @@ class ExportHdlr(MetriqueHdlr):
             f_in = open(path, 'rb')
             f_out = gzip.open(path_gz, 'wb')
             f_out.writelines(f_in)
-	    f_in.close()
-	    f_out.close()
+            f_in.close()
+            f_out.close()
         finally:
             if os.path.exists(path):
                 os.remove(path)
@@ -114,17 +114,14 @@ class IndexHdlr(MetriqueHdlr):
     '''
     @authenticated
     def delete(self, owner, cube):
-        drop = self.get_argument('drop')
-        # DROP the index:
         self.cube_exists(owner, cube)
         self.requires_owner_admin(owner, cube)
+        drop = self.get_argument('drop')
         _cube = self.timeline(owner, cube, admin=True)
-        if drop is not None:
-            # when drop is a list of tuples, the json
-            # serialization->deserialization process leaves us
-            # with a list of lists which pymongo rejects; convert
-            # to ordered dict instead
-            # FIXME why are we not converting anymore?
+        if drop:
+            # json serialization->deserialization process leaves
+            # us with a list of lists which pymongo rejects
+            drop = map(tuple, drop) if isinstance(drop, list) else drop
             _cube.drop_index(drop)
         self.write(_cube.index_information())
 
@@ -133,29 +130,26 @@ class IndexHdlr(MetriqueHdlr):
         self.cube_exists(owner, cube)
         self.requires_owner_read(owner, cube)
         _cube = self.timeline(owner, cube, admin=True)
-        # LIST the indexes:
         self.write(_cube.index_information())
 
     @authenticated
     def post(self, owner, cube):
-        ensure = self.get_argument('ensure')
-        kwargs = dict()
-        name = self.get_argument('name', None)
-        if name is not None:
-            kwargs['name'] = name
-        background = self.get_argument('background', None)
-        if background is not None:
-            kwargs['background'] = background
-        # ENSURE the index:
         self.cube_exists(owner, cube)
         self.requires_owner_admin(owner, cube)
+        ensure = self.get_argument('ensure')
+        background = self.get_argument('background', True)
+        name = self.get_argument('name', None)
+        kwargs = dict()
+        if name:
+            kwargs['name'] = name
+        if background:
+            kwargs['background'] = background
         _cube = self.timeline(owner, cube, admin=True)
-        if ensure is not None:
-            # when ensure is a list of tuples, the json
-            # serialization->deserialization process leaves us
+        if ensure:
+            # json serialization->deserialization process leaves us
             # with a list of lists which pymongo rejects; convert
             # to ordered dict instead
-            # FIXME why are we not converting anymore?
+            ensure = map(tuple, ensure) if isinstance(ensure, list) else ensure
             _cube.ensure_index(ensure, **kwargs)
         self.write(_cube.index_information())
 
@@ -322,27 +316,25 @@ class SaveObjectsHdlr(MetriqueHdlr):
     @authenticated
     def post(self, owner, cube):
         objects = self.get_argument('objects')
-        mtime = self.get_argument('mtime')
+        start_time = self.get_argument('start_time')
         result = self.save_objects(owner=owner, cube=cube,
-                                   objects=objects, mtime=mtime)
+                                   objects=objects, start_time=start_time)
         self.write(result)
 
-    def prepare_objects(self, _cube, objects, mtime):
+    def prepare_objects(self, _cube, objects, start_time):
         '''
         :param dict obj: dictionary that will be converted to mongodb doc
-        :param int mtime: timestamp to apply as _start for objects
+        :param int start_time: timestamp to apply as _start for objects
 
         Do some basic object validatation and add an _start timestamp value
         '''
         new_obj_hashes = []
         for obj in objects:
-            _start = obj.pop('_start') if '_start' in obj else None
+            _start = obj.pop('_start') if '_start' in obj else start_time
             _end = obj.pop('_end') if '_end' in obj else None
 
             if _end is not None and _start is None:
                 self._raise(400, "objects with _end must have _start")
-            if not _start:
-                _start = mtime
             if not isinstance(_start, (int, float)):
                 self._raise(400, "_start must be float/int")
             if not isinstance(_end, (int, float)) and _end is not None:
