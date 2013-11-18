@@ -79,6 +79,11 @@ def extend_parser(parser):
         help='setup.py action to execute')
 
     parser.add_option(
+        '--pre',
+        action='store_true',
+        help='query for pre-release versions')
+
+    parser.add_option(
         '-P', '--packages',
         action='append',
         choices=__pkgs__ + ['all'],
@@ -98,19 +103,16 @@ def extend_parser(parser):
     parser.add_option(
         '--nopull',
         action='store_true',
-        default=False,
         help='do not update (pull) git branch before install')
 
     parser.add_option(
         '--test',
         action='store_true',
-        default=False,
         help='run tests after deployment completes')
 
     parser.add_option(
         '--ipython',
         action='store_true',
-        default=False,
         help='install ipython')
 virtualenv.extend_parser = extend_parser
 
@@ -302,6 +304,8 @@ def deploy(args):
         sys.argv += ['--test']
     if args.git_branch:
         sys.argv += ['--git-branch', args.git_branch]
+    if args.pre:
+        sys.argv += ['--pre']
     virtualenv.main()
 
 
@@ -340,6 +344,8 @@ def sdist(args):
 
 def install(args):
     cmd = 'install'
+    if hasattr(args, 'pre') and args.pre:
+        cmd += ' --pre'
     setup(args, cmd, pip=True)
 
 
@@ -374,6 +380,7 @@ if __name__ == '__main__':
     _deploy = _sub.add_parser('deploy')
     _deploy.add_argument('--test', action='store_true')
     _deploy.add_argument('-B', '--git-branch', default='master')
+    _deploy.add_argument('--pre', action='store_true')
     _deploy.add_argument('args', nargs='*')
     _deploy.set_defaults(func=deploy)
 
