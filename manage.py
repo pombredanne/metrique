@@ -10,7 +10,6 @@ from functools import partial
 import os
 import sys
 import virtualenv
-from setuptools.sandbox import run_setup
 import re
 
 
@@ -28,29 +27,25 @@ RE_VERSION_Y = re.compile(r"__version__\s+=\s+[\"'](\d+.(\d+).\d+)[\"']")
 RE_VERSION_Z = re.compile(r"__version__\s+=\s+[\"'](\d+.\d+.(\d+))[\"']")
 RE_RELEASE = re.compile(r"__release__ = [\"']?((\d+)a?)[\"']?")
 
-
 CWD = os.getcwd()
 SRC_DIR = os.path.join(CWD, __src__)
-
 USER_DIR = os.path.expanduser('~/.metrique')
 
 # set cache dir so pip doesn't have to keep downloading over and over
-PIP_CACHE = os.path.join(USER_DIR, 'pip')
-PIP_EGGS = os.path.join(USER_DIR, '.python-eggs')
+PIP_CACHE = '~/.pip/download-cache'
+PIP_ACCEL = '~/.pip-accel'
 os.environ['PIP_DOWNLOAD_CACHE'] = PIP_CACHE
+os.environ['PIP_ACCEL_CACHE'] = PIP_ACCEL
+PIP_EGGS = os.path.join(USER_DIR, '.python-eggs')
+
+# create dirs we need, in advance
+for _dir in [USER_DIR, PIP_CACHE, PIP_ACCEL, PIP_EGGS]:
+    _dir = os.path.expanduser(_dir)
+    if not os.path.exists(_dir):
+        os.makedirs(_dir)
 
 # make sure the the default user python eggs dir is secure
-if not os.path.exists(PIP_EGGS):
-    os.makedirs(PIP_EGGS, 0700)
-else:
-    os.chmod(PIP_EGGS, 0700)
-
-expand = os.path.expanduser
-makedirs = lambda x: os.makedirs(expand(x)) if not os.path.exists(x) else None
-
-for _dir in [USER_DIR]:
-    # create dirs we need, in advance
-    makedirs(_dir)
+os.chmod(PIP_EGGS, 0700)
 
 
 def get_packages(args):
@@ -127,16 +122,11 @@ def after_install(args, home_dir):
     git_branch = args.git_branch
     pkgs = args.packages
 
-    src_dir = os.getcwd()
-    if git_uri == '.' and os.path.exists('.git'):
-        # if git_uri == '.'; assume cwd is target git repo
-        logger.notify('Using git repo at %s' % src_dir)
-    elif not os.path.exists(src_dir):
+    src_dir = os.path.join(home_dir, 'metrique')
+    if not os.path.exists(src_dir):
         logger.notify('Installing %s -> %s' % (git_uri, home_dir))
-        call('git clone %s %s' % (git_uri, home_dir))
-        src_dir = os.path.join(home_dir, 'metrique')
-    else:
-        raise IOError("cwd is not a git repo! (%s)" % src_dir)
+        call('git clone %s %s' % (git_uri, src_dir))
+    os.chdir(src_dir)
 
     if not args.nopull and git_uri != '.':
         call('git checkout %s' % git_branch)
@@ -266,25 +256,28 @@ def activate(args):
     if (hasattr(args, 'virtenv') and args.virtenv):
         activate = os.path.join(args.virtenv, 'bin', 'activate_this.py')
         execfile(activate, dict(__file__=activate))
-        logger.info('Virtual Env (%s): Activated' % args.virtenv)
+        logger.notify('Virtual Env (%s): Activated' % args.virtenv)
 
 
-def setup(args, cmd, virtenv=True):
-    if virtenv:
-        activate(args)
+def setup(args, cmd):
+    global __pkgs__
+    activate(args)
     if isinstance(cmd, basestring):
         cmd = cmd.strip().split(' ')
     else:
         cmd = [s.strip() for s in cmd]
-    pkg_paths = get_packages(args)
-    for path in pkg_paths:
-        os.chdir(path)
-        sys.path.append(path)
-        path = '%s/setup.py' % path
-        logger.info('(%s) %s %s' % (os.getcwd(), path, str(cmd)))
-        sys.argv[:] = [path] + cmd
-        execfile('setup.py', {'__file__': path, '__name__': '__main__'})
-        sys.path.pop()
+    pkgs = args.packages or __pkgs__
+    cwd = os.getcwd()
+    for path in pkgs:
+        abspath = os.path.join(cwd, 'src', path)
+        os.chdir(abspath)
+        path = os.path.join(abspath, 'setup.py')
+        logger.notify('(%s) %s %s' % (abspath, path, str(cmd)))
+        try:
+            os.system('pip-accel %s -e %s' % (' '.join(cmd), abspath))
+        except:
+            # fall back to using pip if accel fail
+            os.system('pip %s -e %s' % (' '.join(cmd), abspath))
 
 
 def bump(args, kind=None, reset=False, ga=False):
@@ -347,9 +340,7 @@ def status(path):
 if __name__ == '__main__':
     import argparse
 
-    # init cli argparser
-    cli = argparse.ArgumentParser(
-        description='Metrique Build CLI')
+    cli = argparse.ArgumentParser(description='Metrique Manage CLI')
 
     cli.add_argument('--virtenv', type=str)
     cli.add_argument('-P', '--packages', action='append',
