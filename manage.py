@@ -10,6 +10,7 @@ from functools import partial
 import os
 import sys
 import virtualenv
+from setuptools.sandbox import run_setup
 import re
 
 
@@ -34,7 +35,9 @@ SRC_DIR = os.path.join(CWD, __src__)
 USER_DIR = os.path.expanduser('~/.metrique')
 
 # set cache dir so pip doesn't have to keep downloading over and over
+PIP_CACHE = os.path.join(USER_DIR, 'pip')
 PIP_EGGS = os.path.join(USER_DIR, '.python-eggs')
+os.environ['PIP_DOWNLOAD_CACHE'] = PIP_CACHE
 
 # make sure the the default user python eggs dir is secure
 if not os.path.exists(PIP_EGGS):
