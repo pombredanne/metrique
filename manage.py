@@ -9,12 +9,15 @@ CLI for deploying metrique
 from functools import partial
 import os
 import sys
-import virtualenv
 import re
 
-
-logger = virtualenv.Logger([(0, sys.stdout)])
-call_subprocess = virtualenv.call_subprocess
+try:
+    import virtualenv
+except ImportError:
+    os.system('pip install virtualenv')
+finally:
+    logger = virtualenv.Logger([(0, sys.stdout)])
+    call_subprocess = virtualenv.call_subprocess
 
 __pkgs__ = ['metrique', 'metriqued', 'metriquec', 'metriqueu',
             'plotrique']
@@ -64,7 +67,7 @@ def call(cmd, cwd=None):
     try:
         call_subprocess(cmd, cwd=cwd, show_stdout=True)
     except:
-        logger.notify(str(cmd))
+        sys.stderr.write(str(cmd))
         raise
 
 
@@ -149,9 +152,9 @@ def after_install(args, home_dir):
     # argparse is needed for py2.6; pip-accel caches compiled binaries
     # first run for a new virt-env will take forever...
     # second run should be 90% faster!
-    call('%s install -U pip-accel' % pip)
+    call('%s install -U pip-accel virtualenv' % pip)
     call('%s install -U pip distribute setuptools' % pipa)
-    call('%s install -U argparse virtualenv' % pipa)
+    call('%s install -U argparse' % pipa)
 
     # this dependency is installed separately because virtenv
     # path resolution issues; fails due to being unable to find
@@ -268,6 +271,10 @@ def setup(args, cmd):
         cmd = [s.strip() for s in cmd]
     pkgs = args.packages or __pkgs__
     cwd = os.getcwd()
+
+    if os.system('which pip-accel') != 0:
+        os.system('pip install pip-accel')
+
     for path in pkgs:
         abspath = os.path.join(cwd, 'src', path)
         os.chdir(abspath)
@@ -313,10 +320,8 @@ def sdist(args):
     setup(args, cmd)
 
 
-def install(args, cmd='install'):
-    if hasattr(args, 'upload') and args.upload:
-        # build and upload the current version
-        sdist(args=args)
+def install(args):
+    cmd = 'install'
     setup(args, cmd)
 
 
