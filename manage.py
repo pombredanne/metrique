@@ -287,6 +287,16 @@ def setup(args, cmd):
             os.system('pip %s -e %s' % (' '.join(cmd), abspath))
 
 
+def deploy(args):
+    # virtualenv.main; ignore argparser args
+    del sys.argv[1]  # pop off 'deploy' arg
+    if args.packages:
+        sys.argv += ['-P'] + [args.packages]
+    if args.test:
+        sys.argv += ['--test']
+    virtualenv.main()
+
+
 def bump(args, kind=None, reset=False, ga=False):
     if kind is None:
         kind = 'r'
@@ -354,8 +364,9 @@ if __name__ == '__main__':
     _sub = cli.add_subparsers(description='action')
 
     _deploy = _sub.add_parser('deploy')
+    _deploy.add_argument('--test', action='store_true', default=False)
     _deploy.add_argument('args', nargs='*')
-    _deploy.set_defaults(func=virtualenv.main)
+    _deploy.set_defaults(func=deploy)
 
     _build = _sub.add_parser('build')
     _build.add_argument('--ga', action='store_true')
@@ -384,11 +395,4 @@ if __name__ == '__main__':
     _clean.set_defaults(func=clean)
     # parse argv
     args = cli.parse_args()
-    try:
-        args.func(args)
-    except:
-        # calling deploy virtualenv.main, not passing in args
-        del sys.argv[1]  # pop off 'deploy' arg
-        if args.packages:
-            sys.argv += ['-P'] + [args.packages]
-        args.func()
+    args.func(args)

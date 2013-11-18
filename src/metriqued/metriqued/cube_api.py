@@ -375,37 +375,37 @@ class SaveObjectsHdlr(MetriqueHdlr):
         objects = filter(None, objects)
         return objects
 
-    def save_objects(self, owner, cube, objects, mtime=None):
+    def save_objects(self, owner, cube, objects, start_time=None):
         '''
         :param str owner: target owner's cube
         :param str cube: target cube (collection) to save objects to
         :param list objects: list of dictionary-like objects to be stored
-        :param datetime mtime: datetime to apply as mtime for objects
+        :param datetime start_time: datetime to apply as start_time for objects
         :rtype: list - list of object ids saved
 
         Get a list of dictionary objects from client and insert
         or save them to the timeline.
 
-        Apply the given mtime to all objects or apply utcnow(). _mtime
+        Apply the given start_time to all objects or apply utcnow(). _mtime
         is used to support timebased 'delta' updates.
         '''
         self.cube_exists(owner, cube)
         self.requires_owner_write(owner, cube)
-        mtime = dt2ts(mtime) if mtime else utcnow()
+        start_time = dt2ts(start_time) if start_time else utcnow()
         current_mtime = self.get_cube_last_start(owner, cube)
-        if current_mtime and mtime and current_mtime > mtime:
+        if current_mtime and start_time and current_mtime > start_time:
             # don't fail, but make sure the issue is logged!
             # likely, a ntp time sync is required
             self.logger.warn(
-                "object mtime is < server mtime; %s < %s; " % (mtime,
-                                                               current_mtime))
+                "object start_time is < server start_time; %s < %s; " % (
+                    start_time, current_mtime))
         _cube = self.timeline(owner, cube, admin=True)
 
         olen_r = len(objects)
         self.logger.debug(
             '[%s.%s] Recieved %s objects' % (owner, cube, olen_r))
 
-        objects = self.prepare_objects(_cube, objects, mtime)
+        objects = self.prepare_objects(_cube, objects, start_time)
 
         self.logger.debug(
             '[%s.%s] %s objects match their current version in db' % (

@@ -467,8 +467,9 @@ class HTTPClient(object):
     def _load_cookiejar(self):
         cfd = requests.utils.cookiejar_from_dict
         if os.path.exists(self.config.cookiejar):
-            cookiejar = cPickle.load(cfd(self.config.cookiejar))
-            self.session(cookies=cookiejar)
+            with open(self.config.cookiejar) as cj:
+                cookiejar = cfd(cPickle.load(cj))
+            self.session.cookies = cookiejar
 
     def _load_session(self):
         ' load a fresh new requests session; mainly, reset cookies '
