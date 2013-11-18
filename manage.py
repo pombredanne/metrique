@@ -364,7 +364,7 @@ if __name__ == '__main__':
     _sub = cli.add_subparsers(description='action')
 
     _deploy = _sub.add_parser('deploy')
-    _deploy.add_argument('--test', action='store_true', default=False)
+    _deploy.add_argument('--test', action='store_true')
     _deploy.add_argument('args', nargs='*')
     _deploy.set_defaults(func=deploy)
 
