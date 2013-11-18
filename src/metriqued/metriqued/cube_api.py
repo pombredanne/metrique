@@ -330,13 +330,17 @@ class SaveObjectsHdlr(MetriqueHdlr):
         '''
         new_obj_hashes = []
         for obj in objects:
-            _start = obj.pop('_start') if '_start' in obj else start_time
+            if '_start' in obj and obj['_start'] is not None:
+                _start = _start = obj.pop('_start')
+            else:
+                _start = start_time
             _end = obj.pop('_end') if '_end' in obj else None
 
             if _end is not None and _start is None:
                 self._raise(400, "objects with _end must have _start")
             if not isinstance(_start, (int, float)):
-                self._raise(400, "_start must be float/int")
+                self._raise(400,
+                            "_start must be float/int; got %s" % type(_start))
             if not isinstance(_end, (int, float)) and _end is not None:
                 self._raise(400, "_end must be float/int/None")
 
