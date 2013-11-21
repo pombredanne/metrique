@@ -8,10 +8,10 @@ Metrique
    :target: https://travis-ci.org/drpoovilleorg/metrique
 
 .. image:: https://badge.fury.io/py/metrique.png
-   :target: https://pypi.python.org/pypi/metrique
+    :target: http://badge.fury.io/py/metrique
 
-.. image:: https://crate.io/packages/metrique
-   :target: https://github.com/drpoovilleorg/metrique
+.. image:: https://pypip.in/d/metrique/badge.png
+   :target: https://crate.io/packages/metrique
 
 Python/MongoDB Data Warehouse and Data Glue
 
