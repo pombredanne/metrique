@@ -6,7 +6,7 @@ from setuptools import setup
 
 __pkg__ = 'metriqued'
 __version__ = '0.2.4'
-__release__ = "11a"
+__release__ = "12a"
 __nvr__ = '%s-%s' % (__version__, __release__)
 __pkgs__ = ['metriqued']
 __provides__ = ['metriqued']
@@ -18,6 +18,7 @@ __scripts__ = [
 ]
 __requires__ = [
     'metriqueu (>=%s)' % __version__,
+    'gnupg (==1.2.3)',
     'kerberos (==1.1.1)',
     'passlib (==1.6.1)',
     'pymongo (==2.6.1)',
@@ -25,6 +26,7 @@ __requires__ = [
 ]
 __irequires__ = [
     'metriqueu>=%s' % __version__,
+    'gnupg==1.2.3',
     'kerberos==1.1.1',
     'passlib==1.6.1',
     'pymongo==2.6.3',
