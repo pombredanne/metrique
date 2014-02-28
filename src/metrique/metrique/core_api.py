@@ -78,9 +78,11 @@ import glob
 import logging
 import os
 import pandas as pd
+import random
 import re
 import requests
 import simplejson as json
+import string
 import time
 import urllib
 
@@ -671,22 +673,20 @@ class HTTPClient(BaseClient):
     def cookiejar_load(self):
         '''Loading existing user cookiejar, if it exists'''
         path = '%s.%s' % (self.config.cookiejar, self.config.username)
-        cfd = requests.utils.cookiejar_from_dict
         if os.path.exists(path):
             try:
                 with open(path) as cj:
-                    cookiejar = cfd(cPickle.load(cj))
+                    cookiejar = cPickle.load(cj)
             except Exception:
                 pass
             else:
-                self.session.cookies = cookiejar
+                self.session.cookies.update(cookiejar)
 
     def cookiejar_save(self):
         '''Save current session cookies to cookiejar, if possible'''
         path = '%s.%s' % (self.config.cookiejar, self.config.username)
-        dfc = requests.utils.dict_from_cookiejar
         with open(path, 'w') as f:
-            cPickle.dump(dfc(self.session.cookies), f)
+            cPickle.dump(self.session.cookies, f)
 
     def _delete(self, *args, **kwargs):
         ' requests DELETE; using current session '
@@ -758,15 +758,14 @@ class HTTPClient(BaseClient):
         ' wrapper for running a metrique api request; get/post/etc '
         # avoids bug in requests-2.0.1 - pass a dict no RequestsCookieJar
         # eg, see: https://github.com/kennethreitz/requests/issues/1744
-        dfc = requests.utils.dict_from_cookiejar
         retries = self.config.http_retries
         while True:
             _response = runner(_url, auth=(username, password),
-                               cookies=dfc(self.session.cookies),
+                               cookies=self.session.cookies,
                                verify=self.config.ssl_verify,
                                allow_redirects=allow_redirects,
                                stream=stream)
-            self.session.cookies = _response.cookies
+            self.session.cookies.update(_response.cookies)
             self.cookiejar_save()
 
             if _response.status_code == 503 and retries > 0:
@@ -884,6 +883,14 @@ class HTTPClient(BaseClient):
         else:
             msg = 'Failed to connect to metriqued hosts [%s]' % urls
             raise requests.exceptions.ConnectionError(msg)
+
+    def set_cookies(self, **kwargs):
+        self.session.cookies.update(kwargs)
+
+    def unset_cookies(self, keys):
+        for key in keys:
+            if key in self.session.cookies:
+                self.session.cookies.pop(key)
 
     def _save(self, filename, *args, **kwargs):
         ' requests GET of a "file stream" using current session '

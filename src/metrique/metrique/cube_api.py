@@ -87,7 +87,7 @@ def drop(self, quiet=False, cube=None, owner=None):
 def lock(self, expires=1, touch=False, release=False, write=False,
          read=False, lock_id=None, owner=None, cube=None):
     '''
-    Drop (delete) cube.
+    Manage cube locks.
 
     :param expires: seconds before lock expires
     :param touch: touch the lock (set or update expiration)

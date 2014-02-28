@@ -25,7 +25,7 @@ import time
 import traceback
 
 from metrique import pyclient
-from metriqueu.utils import batch_gen, ts2dt, dt2ts, utcnow
+from metriqueu.utils import batch_gen, ts2dt, dt2ts, utcnow, rand_chars
 
 DEFAULT_ENCODING = 'latin-1'
 
@@ -69,52 +69,9 @@ class Generic(pyclient):
         raise NotImplementedError(
             'The activity_get method is not implemented in this cube.')
 
-    def activity_import(self, force=None, delay=None):
-        '''
-        Run the activity import for a given cube, if the cube supports it.
-
-        Essentially, recreate object histories from a cubes 'activity
-        history' table row data, and dump those pre-calcultated historical
-        state object copies into the timeline.
-
-        :param force:
-         - None: import for all ids
-         - list of ids: import for ids in the list
-        :param cube:
-
-        '''
-        oids = force or self.sql_get_oids()
-        oids = list(oids)
-
-        max_workers = self.config.max_workers
-        sql_batch_size = self.config.sql_batch_size
-
-        if max_workers > 1 and sql_batch_size > 1:
-            with ThreadPoolExecutor(max_workers=max_workers) as ex:
-                futures = []
-                delay = 0.2  # stagger the threaded calls a bit
-                for batch in batch_gen(oids, sql_batch_size):
-                    f = ex.submit(self.activity_get_objects, oids=batch)
-                    futures.append(f)
-                    time.sleep(delay)
-
-            for future in as_completed(futures):
-                try:
-                    objs = future.result()
-                except Exception as e:
-                    tb = traceback.format_exc()
-                    self.logger.error(
-                        'Activity Import Error: %s\n%s' % (e, tb))
-                    del tb
-                else:
-                    self.cube_save(objs)
-        else:
-            for batch in batch_gen(oids, sql_batch_size):
-                objs = self.activity_get_objects(oids=batch)
-                self.cube_save(objs)
-
-    def activity_get_objects(self, oids, save=False):
+    def activity_get_objects(self, oids, save=False, lock_id=None):
         self.logger.debug('Getting Objects - Activity History')
+        lock_id = lock_id or rand_chars(10)
         docs = self.get_objects(force=oids)
         # dict, has format: oid: [(when, field, removed, added)]
         activities = self.activity_get(oids)
@@ -126,12 +83,12 @@ class Generic(pyclient):
         self.logger.debug('... activity get - done')
         self.objects = objects
         if save:
-            lock_id = self.cube_lock(touch=True, read=True, expires=10)
             query = '_oid in %s' % oids
             stale_ids = self.distinct(query, date='~')
+            self.cube_lock(touch=True, read=True, expires=10, lock_id=lock_id)
             self.cube_remove(stale_ids)
             self.cube_save(self.objects)
-            self.cube_lock(read=True, release=True, lock_id=lock_id)
+            self.cube_lock(release=True, read=True, lock_id=lock_id)
         return self.objects
 
     def _activity_import_doc(self, time_doc, activities):
@@ -356,15 +313,15 @@ class Generic(pyclient):
         oids = self._delta_force(force, last_update, parse_timestamp)
         self.logger.debug("Updating %s objects" % len(oids))
 
-        stale_ids = []
+        lock_id = rand_chars(10)
+        self.set_cookies(lock_id=lock_id)
         if max_workers > 1 and sql_batch_size > 1:
             with ThreadPoolExecutor(max_workers=max_workers) as ex:
-                stale_ids = []
                 futures = []
                 delay = 0.2  # stagger the threaded calls a bit
                 for batch in batch_gen(oids, sql_batch_size):
                     f = ex.submit(self.activity_get_objects, oids=batch,
-                                  save=True)
+                                  save=True, lock_id=lock_id)
                     futures.append(f)
                     time.sleep(delay)
 
@@ -376,15 +333,11 @@ class Generic(pyclient):
                     self.logger.error(
                         'Activity Import Error: %s\n%s' % (e, tb))
                     del tb
-                else:
-                    pass
         else:
             for batch in batch_gen(oids, sql_batch_size):
-                objs = self.activity_get_objects(oids=batch)
-                self.cube_lock(touch=True, read=True)
-                self.cube_save(objs)
-                self.cube_remove(stale_ids)
-                self.cube_lock(read=True, release=True)
+                objs = self.activity_get_objects(oids=batch, save=True,
+                                                 lock_id=lock_id)
+        self.unset_cookies(['lock_id'])
 
     def _fetchall(self, sql, field_order):
         rows = self.proxy.fetchall(sql)

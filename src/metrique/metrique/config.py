@@ -66,6 +66,7 @@ class Config(JSONConf):
     :param logfile: filename for logs ('metrique.log')
     :param log2file: boolean - log output to file? (False)
     :param logstout: boolean - log output to stdout? (True)
+    :param http_retries: number of attempts to run http requests before excepting
     :param max_workers: number of workers for threaded operations (#cpus)
     :param password: the password to connect to metriqued with (None)
     :param port: metriqued server port (5420)
@@ -102,7 +103,7 @@ class Config(JSONConf):
             'max_workers': multiprocessing.cpu_count(),
             'password': None,
             'port': 5420,
-            'http_retries': 1,
+            'http_retries': 3,
             'sql_retries': 1,
             'sql_batch_size': 1000,
             'ssl': False,

@@ -8,7 +8,9 @@ from dateutil.parser import parse as dt_parse
 from hashlib import sha1
 import os
 import pytz
+import random
 import re
+import string
 
 
 def batch_gen(data, batch_size):
@@ -95,6 +97,11 @@ def jsonhash(obj, root=True, exclude=None):
     else:
         result = obj
     return sha1(repr(result)).hexdigest() if root else result
+
+
+def rand_chars(self, size=6, chars=string.ascii_uppercase + string.digits):
+    # see: http://stackoverflow.com/questions/2257441
+    return ''.join(random.choice(chars) for x in range(size))
 
 
 def set_default(key, default, null_ok=False, err_msg=None):

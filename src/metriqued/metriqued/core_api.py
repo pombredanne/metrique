@@ -26,8 +26,7 @@ from tornado import gen
 from tornado.web import RequestHandler, HTTPError
 
 from metriqued.utils import parse_pql_query, json_encode
-
-from metriqueu.utils import set_default, utcnow, strip_split
+from metriqueu.utils import set_default, utcnow, strip_split, rand_chars
 
 HOSTNAME = socket.gethostname()
 SAMPLE_SIZE = 1
@@ -626,6 +625,7 @@ class MongoDBBackendHdlr(MetriqueHdlr):
         touch = bool(touch)
         write = bool(write)
         read = bool(read)
+        lock_id = lock_id or rand_chars(10)
 
         if not (write or read):
             read = True
@@ -634,12 +634,11 @@ class MongoDBBackendHdlr(MetriqueHdlr):
         _cube = self.db_locks()
         cube_name = self.cjoin(owner, cube)
         spec = {
+            "_id": lock_id,
             "cube": cube_name,
             "write": write,
             "read": read,
         }
-        if lock_id:
-            spec.update({'_id': lock_id})
         if touch:
             now = utcnow()
             expires = now + expires
@@ -648,12 +647,13 @@ class MongoDBBackendHdlr(MetriqueHdlr):
                 "mtime": now,
                 "expires": expires,
             })
-            result = str(_cube.save(spec, manipulate=True))  # returns _id
+            _cube.save(spec)
+            result = str(lock_id)
             self.logger.warn('[%s] Lock Set: %s' % (cube_name, result))
         elif release:
             result = _cube.remove(spec)
-            result = bool(result.get('n'))
-            self.logger.warn('[%s] Lock Release: %s' % (cube_name, result))
+            self.logger.warn('[%s] Lock Release (%s): %s' % (
+                cube_name, lock_id, result))
         else:
             result = self.cube_locked(owner, cube, write=write, read=read)
             self.logger.warn('[%s] Lock Active: %s' % (cube_name, result))
@@ -670,7 +670,7 @@ class MongoDBBackendHdlr(MetriqueHdlr):
             "write": write,
             "read": read,
         }
-        fields = {'_id': 0, 'expires': 1, 'cube': 1, 'read': 1, 'write': 1}
+        fields = ['expires', 'cube', 'read', 'write']
         result = _cube.find_one(spec, fields=fields)
         return result or {}
 
@@ -678,14 +678,16 @@ class MongoDBBackendHdlr(MetriqueHdlr):
                     raise_if_locked=False, wait=True):
         self.logger.debug("Checking cube lock status...")
         _cube = self.db_locks()
+        session_lock = self.get_cookie('lock_id')
         now = utcnow()
-        if self._get_lock(owner, cube, write, read, now):
+        result = self._get_lock(owner, cube, write, read, now)
+        if result and result.get('_id') != session_lock:
             expires = self._get_lock(owner, cube, write,
                                      read, now).get('expires')
-            delay = int(expires - now)
+            delay = int(expires - now) + 1
             if wait and delay < 10:
                 self.logger.debug(
-                    'Cube is locked; delaying response by %ss' % delay + 1)
+                    'Cube is locked; delaying response by %ss' % delay)
                 time.sleep(delay + 1)
             now = utcnow()
             result = self._get_lock(owner, cube, write, read, now)
@@ -693,7 +695,7 @@ class MongoDBBackendHdlr(MetriqueHdlr):
                 if raise_if_locked:
                     expires = int(result.get('expires'))
                     headers = {'Retry-After': str(expires)}
-                    delay = int(expires - now) + 1
+                    delay = int(expires - now)
                     self._raise(503, 'Cube is locked [expires: %ss]' % delay,
                                 headers)
                 else:
@@ -707,6 +709,13 @@ class MongoDBBackendHdlr(MetriqueHdlr):
         # clean up stale locks
         _cube.remove(spec, multi=True)
         return result
+
+    def db_locks(self):
+        '''
+        Return back a mongodb connection to the lockdb collection in
+        the metrique database
+        '''
+        return self.mongodb_config.c_locks_admin
 
     def get_cube_last_start(self, owner, cube):
         '''
@@ -790,13 +799,6 @@ class MongoDBBackendHdlr(MetriqueHdlr):
         self.metrique_config = metrique_config
         self.mongodb_config = mongodb_config
         self.logger = logger
-
-    def db_locks(self):
-        '''
-        Return back a mongodb connection to the lockdb collection in
-        the metrique database
-        '''
-        return self.mongodb_config.c_locks_admin
 
     def sample_cube(self, owner, cube, sample_size=None, query=None):
         '''
