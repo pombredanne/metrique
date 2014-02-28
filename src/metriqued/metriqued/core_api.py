@@ -21,6 +21,7 @@ import cPickle
 import random
 import socket
 import simplejson as json
+import time
 from tornado import gen
 from tornado.web import RequestHandler, HTTPError
 
@@ -314,6 +315,7 @@ class MetriqueHdlr(RequestHandler):
         Currently implemented routines are as follows:
             * log the request (access) details
         '''
+        self.logger.debug(' ... request complete')
         yield self._log_request()  # log request details
 
     def write(self, value, binary=False):
@@ -327,7 +329,8 @@ class MetriqueHdlr(RequestHandler):
         if binary:
             super(MetriqueHdlr, self).write(value)
         else:
-            result = json.dumps(value, default=json_encode, ensure_ascii=False)
+            result = json.dumps(value, default=json_encode,
+                                ensure_ascii=False)
             super(MetriqueHdlr, self).write(result)
 
 ##################### auth #################################
@@ -526,14 +529,22 @@ class MetriqueHdlr(RequestHandler):
         return self._requires(ok)
 
 ##################### utils ################################
-    def _raise(self, code, msg):
+    def _raise(self, code, msg, headers=None):
         if code == 401:
             _realm = self.metrique_config.realm
             basic_realm = 'Basic realm="%s"' % _realm
             self.set_header('WWW-Authenticate', basic_realm)
-        self.logger.info('[%s] %s: %s ...\n%s' % (self.current_user, code,
-                                                  msg, self.request))
+        self.logger.error('[%s] %s: %s ...\n%s' % (self.current_user, code,
+                                                   msg, self.request))
+        self.set_status(code, msg)
+        self._error_headers = headers
         raise HTTPError(code, msg)
+
+    def write_error(self, *args, **kwargs):
+        headers = getattr(self, '_error_headers', None)
+        if headers:
+            [self.set_header(name, value) for name, value in headers.items()]
+        super(MetriqueHdlr, self).write_error(*args, **kwargs)
 
 
 class ObsoleteAPIHdlr(MetriqueHdlr):
@@ -591,6 +602,111 @@ class MongoDBBackendHdlr(MetriqueHdlr):
             return self.mongodb_config.c_cube_profile_admin
         else:
             return self.mongodb_config.c_cube_profile_data
+
+    def cube_lock(self, owner, cube, expires=None, touch=None, release=None,
+                  write=None, read=None, lock_id=None):
+        '''
+        API level cube locking.
+
+        :param owner: username of cube owner
+        :param cube: cube name
+        :param expires: seconds to auto-expire
+        :param release: release the lock, if set
+        :param write: whether locktype is 'write'
+        :param read: whether locktype is 'read'
+        :param lock_id: unique lock id
+
+        Note, if neither read nor write is set, it's considered
+        a read/write lock
+        '''
+        self.requires_admin(owner, cube)
+
+        expires = expires if expires >= 1 else 5
+        release = bool(release)
+        touch = bool(touch)
+        write = bool(write)
+        read = bool(read)
+
+        if not (write or read):
+            read = True
+            write = True
+
+        _cube = self.db_locks()
+        cube_name = self.cjoin(owner, cube)
+        spec = {
+            "cube": cube_name,
+            "write": write,
+            "read": read,
+        }
+        if lock_id:
+            spec.update({'_id': lock_id})
+        if touch:
+            now = utcnow()
+            expires = now + expires
+            spec.update({
+                "setter": self.current_user,
+                "mtime": now,
+                "expires": expires,
+            })
+            result = str(_cube.save(spec, manipulate=True))  # returns _id
+            self.logger.warn('[%s] Lock Set: %s' % (cube_name, result))
+        elif release:
+            result = _cube.remove(spec)
+            result = bool(result.get('n'))
+            self.logger.warn('[%s] Lock Release: %s' % (cube_name, result))
+        else:
+            result = self.cube_locked(owner, cube, write=write, read=read)
+            self.logger.warn('[%s] Lock Active: %s' % (cube_name, result))
+        return result
+
+    def _get_lock(self, owner, cube, write, read, now):
+        _cube = self.db_locks()
+        cube_name = self.cjoin(owner, cube)
+        write = bool(write)
+        read = bool(read)
+        spec = {
+            "cube": cube_name,
+            "expires": {"$gt": now},
+            "write": write,
+            "read": read,
+        }
+        fields = {'_id': 0, 'expires': 1, 'cube': 1, 'read': 1, 'write': 1}
+        result = _cube.find_one(spec, fields=fields)
+        return result or {}
+
+    def cube_locked(self, owner, cube, write=None, read=None,
+                    raise_if_locked=False, wait=True):
+        self.logger.debug("Checking cube lock status...")
+        _cube = self.db_locks()
+        now = utcnow()
+        if self._get_lock(owner, cube, write, read, now):
+            expires = self._get_lock(owner, cube, write,
+                                     read, now).get('expires')
+            delay = int(expires - now)
+            if wait and delay < 10:
+                self.logger.debug(
+                    'Cube is locked; delaying response by %ss' % delay + 1)
+                time.sleep(delay + 1)
+            now = utcnow()
+            result = self._get_lock(owner, cube, write, read, now)
+            if result:
+                if raise_if_locked:
+                    expires = int(result.get('expires'))
+                    headers = {'Retry-After': str(expires)}
+                    delay = int(expires - now) + 1
+                    self._raise(503, 'Cube is locked [expires: %ss]' % delay,
+                                headers)
+                else:
+                    return result
+
+        self.logger.debug("No valid cube lock found.")
+        result = False
+        spec = {
+            "expires": {"$lte": utcnow()},
+        }
+        # clean up stale locks
+        _cube.remove(spec, multi=True)
+        return result
 
     def get_cube_last_start(self, owner, cube):
         '''
@@ -674,6 +790,13 @@ class MongoDBBackendHdlr(MetriqueHdlr):
         self.metrique_config = metrique_config
         self.mongodb_config = mongodb_config
         self.logger = logger
+
+    def db_locks(self):
+        '''
+        Return back a mongodb connection to the lockdb collection in
+        the metrique database
+        '''
+        return self.mongodb_config.c_locks_admin
 
     def sample_cube(self, owner, cube, sample_size=None, query=None):
         '''

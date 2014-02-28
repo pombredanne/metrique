@@ -374,7 +374,7 @@ http {
 
             ### force timeouts if one of backend is died ##
             proxy_next_upstream error timeout invalid_header http_500 http_502
-                                                             http_503 http_504;
+                                                             http_504;
         }
     }
 }

@@ -44,6 +44,7 @@ class AggregateHdlr(MongoDBBackendHdlr):
         :param pipeline: pql aggretation pipeline
         '''
         self.requires_read(owner, cube)
+        self.cube_locked(owner, cube, read=True, raise_if_locked=True)
         pipeline = set_default(pipeline, None, null_ok=False)
         return self.timeline(owner, cube).aggregate(pipeline)
 
@@ -75,7 +76,7 @@ class CountHdlr(MongoDBBackendHdlr):
                            objects will be queried.
         '''
         self.requires_read(owner, cube)
-
+        self.cube_locked(owner, cube, read=True, raise_if_locked=True)
         query = query or ''
         query = query_add_date(query, date)
         self.logger.info('pql query: %s' % query)
@@ -116,6 +117,7 @@ class DeptreeHdlr(MongoDBBackendHdlr):
         :param level: limit depth of recursion
         '''
         self.requires_read(owner, cube)
+        self.cube_locked(owner, cube, read=True, raise_if_locked=True)
         if level and level <= 0:
             self._raise(400, 'level must be >= 1')
         if isinstance(oids, basestring):
@@ -169,11 +171,14 @@ class DistinctHdlr(MongoDBBackendHdlr):
         directly, run on a find cursor.
         '''
         self.requires_read(owner, cube)
+        self.cube_locked(owner, cube, read=True, raise_if_locked=True)
         if isinstance(query, basestring):
             query = query_add_date(query, date)
             spec = parse_pql_query(query)
+            self.logger.info("Distinct [%s]: %s" % (field, spec))
             result = self.timeline(owner, cube).find(spec).distinct(field)
         else:
+            self.logger.info("Distinct [%s]: No Query" % field)
             result = self.timeline(owner, cube).distinct(field)
         return result
 
@@ -225,6 +230,7 @@ class FindHdlr(MongoDBBackendHdlr):
         :param limit: number of results matched to return of total found
         '''
         self.requires_read(owner, cube)
+        self.cube_locked(owner, cube, read=True, raise_if_locked=True)
 
         sort = self.check_sort(sort)
         fields = self.get_fields(owner, cube, fields)
@@ -315,6 +321,7 @@ class HistoryHdlr(MongoDBBackendHdlr):
         :param date: list of dates that should be used to bin the results
         '''
         self.requires_read(owner, cube)
+        self.cube_locked(owner, cube, read=True, raise_if_locked=True)
 
         date_list = sorted(map(dt2ts, date_list))
         query = '%s and _start < %s and (_end >= %s or _end == None)' % (
@@ -399,6 +406,7 @@ class SampleHdlr(MongoDBBackendHdlr):
         :param query: query used to filter sampleset
         '''
         self.requires_read(owner, cube)
+        self.cube_locked(owner, cube, read=True, raise_if_locked=True)
         fields = self.get_fields(owner, cube, fields)
         query = query_add_date(query, date)
         spec = parse_pql_query(query)

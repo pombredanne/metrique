@@ -81,13 +81,14 @@ import pandas as pd
 import re
 import requests
 import simplejson as json
+import time
 import urllib
 
 from metrique import query_api, user_api, cube_api
 from metrique import regtest as regression_test
 from metrique.config import Config
 from metrique.utils import json_encode, get_cube
-from metriqueu.utils import utcnow
+from metriqueu.utils import utcnow, dt2ts
 
 # setup default root logger, but remove default StreamHandler (stderr)
 # Handlers will be added upon __init__()
@@ -588,6 +589,7 @@ class HTTPClient(BaseClient):
     cube_register = cube_api.register
     cube_update_role = cube_api.update_role
 
+    cube_lock = cube_api.lock
     cube_save = cube_api.save
     cube_rename = cube_api.rename
     cube_remove = cube_api.remove
@@ -757,23 +759,48 @@ class HTTPClient(BaseClient):
         # avoids bug in requests-2.0.1 - pass a dict no RequestsCookieJar
         # eg, see: https://github.com/kennethreitz/requests/issues/1744
         dfc = requests.utils.dict_from_cookiejar
-        _response = runner(_url, auth=(username, password),
-                           cookies=dfc(self.session.cookies),
-                           verify=self.config.ssl_verify,
-                           allow_redirects=allow_redirects,
-                           stream=stream)
+        retries = self.config.http_retries
+        while True:
+            _response = runner(_url, auth=(username, password),
+                               cookies=dfc(self.session.cookies),
+                               verify=self.config.ssl_verify,
+                               allow_redirects=allow_redirects,
+                               stream=stream)
+            self.session.cookies = _response.cookies
+            self.cookiejar_save()
 
-        self.session.cookies = _response.cookies
-        self.cookiejar_save()
+            if _response.status_code == 503 and retries > 0:
+                retries -= 1
+                now = utcnow()
+                self.logger.debug("Headers: %s" % str(_response.headers))
+                expires = _response.headers.get('Retry-After', now + 2)
+                try:
+                    expires = int(expires)
+                except (TypeError, ValueError):
+                    try:
+                        expires = dt2ts(expires)
+                    except Exception:
+                        self.logger.error(
+                            "Failed to parse '503: Retry-After' header")
+                        expires = now + 2
+                delay = int(expires - now)
+                delay = delay if delay > 0 else 1
+                self.logger.warn(
+                    'Resource locked, re-trying in %s seconds' % delay)
+                time.sleep(delay)
+                _response.close()
+                continue
 
-        try:
-            _response.raise_for_status()
-        except Exception as e:
-            content = _response.content
-            code = _response.status_code
-            content = '[%s] %s\n%s\n%s' % (code, _url, str(e), content)
-            self.logger.error(content)
-            raise
+            try:
+                _response.raise_for_status()
+            except Exception as e:
+                content = _response.content
+                code = _response.status_code
+                content = '[%s] %s\n%s\n%s' % (code, _url, str(e), content)
+                self.logger.error(content)
+                raise
+            else:
+                break
         return _response
 
     def _kwargs_json(self, **kwargs):

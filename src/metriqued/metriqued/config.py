@@ -143,6 +143,7 @@ class mongodb_config(JSONConf):
             'collection_cube_profile': 'cube_profile',
             'collection_user_profile': 'user_profile',
             'collection_logs': 'logs',
+            'collection_locks': 'locks',
             'fsync': False,
             'host': '127.0.0.1',
             'journal': True,
@@ -237,3 +238,8 @@ class mongodb_config(JSONConf):
     def c_logs_admin(self):
         '''Wrapper for a read/write 'logs' collection proxy'''
         return self.db_metrique_admin[self.collection_logs]
+
+    @property
+    def c_locks_admin(self):
+        '''Wrapper for a read/write 'logs' collection proxy'''
+        return self.db_metrique_admin[self.collection_locks]

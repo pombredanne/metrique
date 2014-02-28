@@ -43,6 +43,7 @@ class DropHdlr(MongoDBBackendHdlr):
         :param cube: cube name
         '''
         self.requires_admin(owner, cube)
+        self.cube_locked(owner, cube, write=True, raise_if_locked=True)
         if not self.cube_exists(owner, cube):
             self._raise(404, '%s.%s does not exist' % (owner, cube))
         # drop the cube
@@ -63,7 +64,6 @@ class ExportHdlr(MongoDBBackendHdlr):
     '''
     @authenticated
     def get(self, owner, cube):
-        self.requires_admin(owner, cube)
         path = ''
         try:
             path = self.mongoexport(owner, cube)
@@ -77,6 +77,7 @@ class ExportHdlr(MongoDBBackendHdlr):
             if os.path.exists(path):
                 os.remove(path)
 
+    # FIXME: REMOVE THIS
     # FIXME: UNICODE IS NOT PROPERLY ENCODED!
     def mongoexport(self, owner, cube):
         '''
@@ -86,6 +87,8 @@ class ExportHdlr(MongoDBBackendHdlr):
         :param owner: username of cube owner
         :param cube: cube name
         '''
+        self.requires_admin(owner, cube)
+        self.cube_locked(owner, cube, read=True, raise_if_locked=True)
         conf = self.mongodb_config
         _cube = '__'.join((owner, cube))
         now = datetime.now().isoformat()
@@ -164,6 +167,7 @@ class IndexHdlr(MongoDBBackendHdlr):
         :param cube: cube name
         '''
         self.requires_admin(owner, cube)
+        self.cube_locked(owner, cube, write=True, raise_if_locked=True)
         ensure = self.get_argument('ensure')
         background = self.get_argument('background', True)
         name = self.get_argument('name', None)
@@ -224,9 +228,28 @@ class ListHdlr(MongoDBBackendHdlr):
         :param query: high-level query used to create population to sample
         '''
         self.requires_read(owner, cube)
+        self.cube_locked(owner, cube, write=True, raise_if_locked=True)
         docs = self.sample_cube(owner, cube, sample_size, query)
         cube_fields = list(set([k for d in docs for k in d.keys()]))
         return cube_fields
+
+
+class LockHdlr(MongoDBBackendHdlr):
+    '''
+    RequestHandler for locking a cube from read/writes
+    '''
+    @authenticated
+    def post(self, owner, cube):
+        expires = self.get_argument('expires')
+        touch = self.get_argument('touch')
+        release = self.get_argument('release')
+        write = self.get_argument('write')
+        read = self.get_argument('read')
+        lock_id = self.get_argument('lock_id')
+        result = self.cube_lock(owner=owner, cube=cube, expires=expires,
+                                touch=touch, release=release, write=write,
+                                read=read, lock_id=lock_id)
+        self.write(result)
 
 
 class RenameHdlr(MongoDBBackendHdlr):
@@ -247,30 +270,37 @@ class RenameHdlr(MongoDBBackendHdlr):
         :param new_new: the new name of the cube
         '''
         self.logger.debug("Renaming [%s] %s -> %s" % (owner, cube, new_name))
+        self.requires_admin(owner, cube)
         self.cube_exists(owner, cube)
+        if self.cube_exists(owner, new_name):
+            self._raise(409, "cube is already named %s" % new_name)
         if self.cube_exists(owner, new_name, raise_if_not=False):
             self._raise(409, "cube already exists (%s)" % new_name)
+        self.cube_locked(owner, cube, raise_if_locked=True)
 
         _cube_profile = self.cube_profile(admin=True)
 
         old = self.cjoin(owner, cube)
         new = self.cjoin(owner, new_name)
 
-        # get the cube_profile doc
-        spec = {'_id': old}
-        doc = _cube_profile.find_one(spec)
-        # save the doc with new _id
-        doc.update({'_id': new})
-        _cube_profile.insert(doc)
-        # rename the collection
-
-        self.mongodb_config.db_timeline_admin[old].rename(new)
-        # push the collection into the list of ones user owns
-        self.update_user_profile(owner, 'addToSet', 'own', new)
-        # pull the old cube from user profile's 'own'
-        self.update_user_profile(owner, 'pull', 'own', old)
-        # remove the old doc
-        _cube_profile.remove(spec)
+        self.cube_lock(owner, cube, touch=True)
+        try:
+            # get the cube_profile doc
+            spec = {'_id': old}
+            doc = _cube_profile.find_one(spec)
+            # save the doc with new _id
+            doc.update({'_id': new})
+            _cube_profile.insert(doc)
+            # rename the collection
+            self.mongodb_config.db_timeline_admin[old].rename(new)
+            # push the collection into the list of ones user owns
+            self.update_user_profile(owner, 'addToSet', 'own', new)
+            # pull the old cube from user profile's 'own'
+            self.update_user_profile(owner, 'pull', 'own', old)
+            # remove the old doc
+            _cube_profile.remove(spec)
+        finally:
+            self.cube_lock(owner, cube, release=True)
         return True
 
 
@@ -366,6 +396,7 @@ class RemoveObjectsHdlr(MongoDBBackendHdlr):
         :param string date: metrique date(range)
         '''
         self.requires_admin(owner, cube)
+        self.cube_locked(owner, cube, write=True, raise_if_locked=True)
         if not query:
             return []
 
@@ -465,6 +496,7 @@ class SaveObjectsHdlr(MongoDBBackendHdlr):
         :param obejcts: list of objects to save
         '''
         self.requires_write(owner, cube)
+        self.cube_locked(owner, cube, write=True, raise_if_locked=True)
         _cube = self.timeline(owner, cube, admin=True)
 
         olen_r = len(objects)
@@ -585,6 +617,7 @@ class UpdateRoleHdlr(MongoDBBackendHdlr):
             * set - set or replace a value
         '''
         self.requires_admin(owner, cube)
+        self.cube_locked(owner, cube, write=True, raise_if_locked=True)
         self.valid_cube_role(role)
         result = self.update_cube_profile(owner, cube, action, role, username)
         # push the collection into the list of ones user owns

@@ -84,6 +84,26 @@ def drop(self, quiet=False, cube=None, owner=None):
             raise
 
 
+def lock(self, expires=1, touch=False, release=False, write=False,
+         read=False, lock_id=None, owner=None, cube=None):
+    '''
+    Drop (delete) cube.
+
+    :param expires: seconds before lock expires
+    :param touch: touch the lock (set or update expiration)
+    :param release: release the lock
+    :param write: make it a write lock
+    :param read: make it a read lock
+    :param owner: username of cube owner
+    :param cube: cube name
+
+    Note, if neither read nor write is set, it's considered a read/write lock
+    '''
+    cmd = self.get_cmd(owner, cube, 'lock')
+    return self._post(cmd, expires=expires, touch=touch, release=release,
+                      write=write, read=read, lock_id=lock_id)
+
+
 def register(self, cube=None, owner=None, quiet=False):
     '''
     Register a new cube.

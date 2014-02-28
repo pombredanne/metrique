@@ -102,6 +102,7 @@ class Config(JSONConf):
             'max_workers': multiprocessing.cpu_count(),
             'password': None,
             'port': 5420,
+            'http_retries': 1,
             'sql_retries': 1,
             'sql_batch_size': 1000,
             'ssl': False,

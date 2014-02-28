@@ -20,6 +20,7 @@ from metriquet.tornadohttp import TornadoHTTPServer
 
 from metriqued.config import metriqued_config, mongodb_config
 from metriqued import core_api, cube_api, query_api, user_api
+from metriqueu.utils import utcnow
 
 USER_DIR = os.path.expanduser('~/.metrique')
 ETC_DIR = os.path.join(USER_DIR, 'etc')
@@ -99,6 +100,7 @@ class MetriqueHTTP(TornadoHTTPServer):
         self.logger.debug(' Port: %s' % self.dbconf.port)
 
         self._mongodb_check()
+        self._clear_locks()
         self._prepare_handlers()
         self._setup_mongodb_logging()
 
@@ -137,6 +139,7 @@ class MetriqueHTTP(TornadoHTTPServer):
             (ucv2(r"distinct"), query_api.DistinctHdlr, init),
             (ucv2(r"sample"), query_api.SampleHdlr, init),
 
+            (ucv2(r"lock"), cube_api.LockHdlr, init),
             (ucv2(r"index"), cube_api.IndexHdlr, init),
             (ucv2(r"save"), cube_api.SaveObjectsHdlr, init),
             (ucv2(r"rename"), cube_api.RenameHdlr, init),
@@ -151,6 +154,14 @@ class MetriqueHTTP(TornadoHTTPServer):
         handlers = base_handlers + user_cube_handlers
         self.handlers = handlers
         return handlers
+
+    def _clear_locks(self):
+        '''clean up stale locks'''
+        spec = {
+            "expires": {"$lte": utcnow()},
+        }
+        _cube = self.dbconf.c_locks_admin
+        _cube.remove(spec, multi=True)
 
     def _mongodb_check(self):
         # Fail to start if we can't communicate with mongo
